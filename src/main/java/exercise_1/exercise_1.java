@@ -129,8 +129,8 @@ public class exercise_1 {
                 .setFeaturesCol(FEATURES_COL);
 
         ParamMap[] paramGrid = new ParamGridBuilder()
-                .addGrid(rfc.numTrees(), new int[]{1, 10, 100})
-                .addGrid(rfc.maxDepth(), new int[]{5, 10, 15})
+                .addGrid(rfc.numTrees(), new int[]{50, 100})
+                .addGrid(rfc.maxDepth(), new int[]{15, 20, 30})
                 .build();
 
         CrossValidator cv = new CrossValidator()
@@ -142,6 +142,9 @@ public class exercise_1 {
                 .setEstimatorParamMaps(paramGrid).setNumFolds(5);
         CrossValidatorModel cvModel = cv.fit(train);
         System.out.println(cvModel.bestModel().toString());
+        System.out.println(cvModel.estimatorParamMaps().toString());
+        System.out.println(cvModel.bestModel().get(rfc.numTrees()));
+        System.out.println(cvModel.bestModel().get(rfc.maxDepth()));
         return (cvModel);
     }
 
