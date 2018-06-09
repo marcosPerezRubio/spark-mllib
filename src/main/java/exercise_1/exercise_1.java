@@ -1,29 +1,28 @@
 package exercise_1;
 
-import org.apache.hadoop.yarn.webapp.hamlet.HamletSpec;
 import org.apache.spark.api.java.JavaSparkContext;
-import org.apache.spark.ml.classification.LinearSVC;
+import org.apache.spark.ml.classification.RandomForestClassifier;
 import org.apache.spark.ml.evaluation.MulticlassClassificationEvaluator;
 import org.apache.spark.ml.feature.*;
 import org.apache.spark.ml.param.ParamMap;
 import org.apache.spark.ml.tuning.CrossValidator;
 import org.apache.spark.ml.tuning.CrossValidatorModel;
 import org.apache.spark.ml.tuning.ParamGridBuilder;
-import org.apache.spark.sql.*;
-import org.apache.spark.sql.api.java.UDF1;
-import org.apache.spark.sql.catalyst.plans.logical.statsEstimation.ValueInterval;
-
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.regex.Matcher;
+import org.apache.spark.sql.DataFrameReader;
+import org.apache.spark.sql.Dataset;
+import org.apache.spark.sql.Row;
+import org.apache.spark.sql.SparkSession;
 
 import static org.apache.spark.sql.functions.callUDF;
-import static org.apache.spark.sql.types.DataTypes.FloatType;
 import static org.apache.spark.sql.types.DataTypes.IntegerType;
 
 
 public class exercise_1 {
 
+
+    private static final String FEATURES_COL = "features";
+    public static final String PREDICTION_COL = "prediction";
+    public static final String ACCURACY_COL = "accuracy";
 
     private static Integer mapHemo(Double num) {
         if (num == null) {
@@ -122,51 +121,34 @@ public class exercise_1 {
     }
 
 
-    // Transforma el vector de palabras al modelo TF_IDF
-    public static Dataset<Row> transformTFIDF(Dataset<Row> ds, int numFeatures) {
-        Tokenizer tokenizer = new Tokenizer().setInputCol("text").setOutputCol("words");
-
-        Dataset<Row> wordsMail = tokenizer.transform(ds);
-
-        HashingTF hashingTF = new HashingTF()
-                .setInputCol("words")
-                .setOutputCol("features")
-                .setNumFeatures(numFeatures);
-
-        Dataset<Row> featurizedData = hashingTF.transform(wordsMail);
-        return (featurizedData);
-    }
-
     // Ajusta un modelo SVM lineal mediante CV seleccionando el mejor parámetro C
     public static CrossValidatorModel fitModel(Dataset<Row> train) {
 
-        LinearSVC lsvc = new LinearSVC()
-                .setMaxIter(5)
-                .setLabelCol("label")
-                .setFeaturesCol("features");
+        RandomForestClassifier rfc = new RandomForestClassifier()
+                .setLabelCol(VAR_DIAS_ESTANCIA_DISC)
+                .setFeaturesCol(FEATURES_COL);
 
         ParamMap[] paramGrid = new ParamGridBuilder()
-                .addGrid(lsvc.regParam(), new double[]{10.0, 1.0, 0.1})
+                .addGrid(rfc.numTrees(), new int[]{1, 10, 100})
+                .addGrid(rfc.maxDepth(), new int[]{5, 10, 15})
                 .build();
+
         CrossValidator cv = new CrossValidator()
-                .setEstimator(lsvc)
+                .setEstimator(rfc)
                 .setEvaluator(new MulticlassClassificationEvaluator()
-                        .setMetricName("accuracy")
-                        .setLabelCol("label")
-                        .setPredictionCol("prediction"))
+                        .setMetricName(ACCURACY_COL)
+                        .setLabelCol(VAR_DIAS_ESTANCIA_DISC)
+                        .setPredictionCol(PREDICTION_COL))
                 .setEstimatorParamMaps(paramGrid).setNumFolds(5);
         CrossValidatorModel cvModel = cv.fit(train);
+        System.out.println(cvModel.bestModel().toString());
         return (cvModel);
     }
 
     final static String VAR_DIA_ESTANCIA = "DiasEstancia";
-    final static String VAR_DIA_ESTANCIA_DISC = "DiasEstanciaDisc";
+    final static String VAR_DIAS_ESTANCIA_DISC = "DiasEstanciaDisc";
 
     final static double[] SPLITS_DIA_ESTANCIA = {Double.NEGATIVE_INFINITY, 12, 41, 69, Double.POSITIVE_INFINITY};
-
-    final static double[] SPLITS_BARTHEL = {Double.NEGATIVE_INFINITY, -999, 20, 61, 91, 99, Double.POSITIVE_INFINITY};
-
-    private final static String[] CATEGORIES_ORGANIC = {"DESCONOCIDO", "ANORMAL", "NORMAL"};
 
     private static final String HEMO_COL = "Hemoglobina";
     private static final String CREA_COL = "Creatinina";
@@ -175,6 +157,7 @@ public class exercise_1 {
     private static final String PFF_COL = "Pfeiffer";
     private static final String DIF_BAR_COL = "DiferenciaBarthel";
     private static final String DIF_PFF_COL = "DiferenciaPfeiffer";
+
     private final static String IND_DEM_COL = "IndicadorDemencia";
     private final static String IND_CONS_COL = "IndicadorConstipacion";
     private final static String IND_SORD_COL = "IndicadorSordera";
@@ -185,9 +168,30 @@ public class exercise_1 {
     private final static String LIST_PROCEDIMIENTOS_PRI_COL = "ListaProcedimientosPri";
     private final static String LIST_PROCEDIMIENTOS_SEC_COL = "ListaProcedimientosSec";
     private final static String LIST_CAUSAS_EXTERNAS_COL = "ListaCausasExternas";
+    private final static String[] LIST_ARRAY = new String[]{
+            LIST_DIAGNOSTICOS_PRI_COL,
+            LIST_DIAGNOSTICOS_SEC_COL,
+            LIST_PROCEDIMIENTOS_PRI_COL,
+            LIST_PROCEDIMIENTOS_SEC_COL,
+            LIST_CAUSAS_EXTERNAS_COL
+    };
 
-    private static final String JOKER_COL = "joker";
-    private static final String VALUE_COL = "value";
+    private final static String[] LIST_ARRAY_JOKER = new String[]{
+            LIST_DIAGNOSTICOS_PRI_COL + "_JOKER",
+            LIST_DIAGNOSTICOS_SEC_COL + "_JOKER",
+            LIST_PROCEDIMIENTOS_PRI_COL + "_JOKER",
+            LIST_PROCEDIMIENTOS_SEC_COL + "_JOKER",
+            LIST_CAUSAS_EXTERNAS_COL + "_JOKER"
+    };
+
+    private final static String[] LIST_ARRAY_OUTPUT = new String[]{
+            LIST_DIAGNOSTICOS_PRI_COL + "_OUTPUT",
+            LIST_DIAGNOSTICOS_SEC_COL + "_OUTPUT",
+            LIST_PROCEDIMIENTOS_PRI_COL + "_OUTPUT",
+            LIST_PROCEDIMIENTOS_SEC_COL + "_OUTPUT",
+            LIST_CAUSAS_EXTERNAS_COL + "_OUTPUT"
+    };
+
     private static final String[] INPUT_COLUMS = new String[]{
             HEMO_COL,
             CREA_COL,
@@ -197,8 +201,8 @@ public class exercise_1 {
             DIF_BAR_COL,
             DIF_PFF_COL
     };
-    private static final String OUTPUT_COL = "output";
-    private static final String[] OUTPUT_COLUMNS =  new String[]{
+
+    private static final String[] OUTPUT_COLUMNS = new String[]{
             HEMO_COL + "_OUTPUT",
             CREA_COL + "_OUTPUT",
             ALBU_COL + "_OUTPUT",
@@ -206,29 +210,33 @@ public class exercise_1 {
             PFF_COL + "_OUTPUT",
             DIF_BAR_COL + "_OUTPUT",
             DIF_PFF_COL + "_OUTPUT"
-    };;
-    private static final Integer NULLABLE_INDEX = 3;
+    };
+    ;
 
     private static Dataset<Row> tokenizerAndVectorizerByComma(
-            final Dataset<Row> input,
-            final String inputCol,
-            final String outputCol,
-            final String newOutputCol
+            Dataset<Row> input,
+            final String[] inputCol,
+            final String[] jokerCol,
+            final String[] outputCol
     ) {
-        RegexTokenizer tokenizer = new RegexTokenizer()
-                .setInputCol(inputCol)
-                .setOutputCol(outputCol)
-                .setPattern(",");
 
-        Dataset<Row> output = tokenizer.transform(input);
-        Word2Vec word2Vec = new Word2Vec()
-                .setInputCol(outputCol)
-                .setOutputCol(newOutputCol);
-        Word2VecModel word2VecModel = word2Vec.fit(output);
-        return word2VecModel.transform(output);
+        final Integer inputLength = inputCol.length;
+        for (int i = 0; i < inputLength; ++i) {
+            RegexTokenizer tokenizer = new RegexTokenizer()
+                    .setInputCol(inputCol[i])
+                    .setOutputCol(jokerCol[i])
+                    .setPattern(",");
+            Dataset<Row> output = tokenizer.transform(input);
+            Word2Vec word2Vec = new Word2Vec()
+                    .setInputCol(jokerCol[i])
+                    .setOutputCol(outputCol[i]);
+            Word2VecModel word2VecModel = word2Vec.fit(output);
+            input = word2VecModel.transform(output);
+        }
+        return input;
     }
 
-    private static Integer getValueOrDefault(Integer x, Integer value){
+    private static Integer getValueOrDefault(Integer x, Integer value) {
         return x == null ? value : x;
     }
 
@@ -236,11 +244,10 @@ public class exercise_1 {
         JavaSparkContext jsc = new JavaSparkContext(ss.sparkContext());
         Dataset<Row> estimations = readEstimationFile(ss, jsc, "src/main/resources/PacientesSim.csv");
 
-        // Transformaciones
         // Tr 1
         Bucketizer bucketizer = new Bucketizer()
                 .setInputCol(VAR_DIA_ESTANCIA)
-                .setOutputCol(VAR_DIA_ESTANCIA_DISC)
+                .setOutputCol(VAR_DIAS_ESTANCIA_DISC)
                 .setSplits(SPLITS_DIA_ESTANCIA);
         Dataset<Row> output = bucketizer.transform(estimations);
         // Tr 2
@@ -256,16 +263,16 @@ public class exercise_1 {
         ss.udf().register("valueOrTwo", (Integer x) -> getValueOrDefault(x, 2), IntegerType);
 
         Dataset<Row> output2 = output.withColumn(HEMO_COL, callUDF("mapHemo", output.col(HEMO_COL)))
-                                    .withColumn(CREA_COL, callUDF("mapCreatinina", output.col(CREA_COL)))
-                                    .withColumn(ALBU_COL, callUDF("mapAlbumina", output.col(ALBU_COL)))
-                                    .withColumn(BAR_COL, callUDF("mapBarthel", output.col(BAR_COL)))
-                                    .withColumn(PFF_COL, callUDF("mapPfeiffer", output.col(PFF_COL)))
-                                    .withColumn(DIF_BAR_COL, callUDF("mapDifBarthel", output.col(DIF_BAR_COL)))
-                                    .withColumn(DIF_PFF_COL, callUDF("mapDifPfeiffer", output.col(DIF_PFF_COL)))
-                                    .withColumn(IND_DEM_COL, callUDF("valueOrZero", output.col(IND_DEM_COL)))
-                                    .withColumn(IND_CONS_COL, callUDF("valueOrTwo", output.col(IND_CONS_COL)))
-                                    .withColumn(IND_SORD_COL, callUDF("valueOrTwo", output.col(IND_SORD_COL)))
-                                    .withColumn(IND_ALT_VIS_COL, callUDF("valueOrTwo", output.col(IND_ALT_VIS_COL)));
+                .withColumn(CREA_COL, callUDF("mapCreatinina", output.col(CREA_COL)))
+                .withColumn(ALBU_COL, callUDF("mapAlbumina", output.col(ALBU_COL)))
+                .withColumn(BAR_COL, callUDF("mapBarthel", output.col(BAR_COL)))
+                .withColumn(PFF_COL, callUDF("mapPfeiffer", output.col(PFF_COL)))
+                .withColumn(DIF_BAR_COL, callUDF("mapDifBarthel", output.col(DIF_BAR_COL)))
+                .withColumn(DIF_PFF_COL, callUDF("mapDifPfeiffer", output.col(DIF_PFF_COL)))
+                .withColumn(IND_DEM_COL, callUDF("valueOrZero", output.col(IND_DEM_COL)))
+                .withColumn(IND_CONS_COL, callUDF("valueOrTwo", output.col(IND_CONS_COL)))
+                .withColumn(IND_SORD_COL, callUDF("valueOrTwo", output.col(IND_SORD_COL)))
+                .withColumn(IND_ALT_VIS_COL, callUDF("valueOrTwo", output.col(IND_ALT_VIS_COL)));
 
         // Encoding (Tr 7)
         OneHotEncoderEstimator a = new OneHotEncoderEstimator()
@@ -273,63 +280,60 @@ public class exercise_1 {
                 .setOutputCols(OUTPUT_COLUMNS);
 
         Dataset<Row> output3 = a.fit(output2).transform(output2);
-        output3.show();
 
-        // Lista de valores
+        Dataset<Row> df = tokenizerAndVectorizerByComma(output3,
+                LIST_ARRAY,
+                LIST_ARRAY_JOKER,
+                LIST_ARRAY_OUTPUT);
 
-        Dataset<Row> listDiagnosticosPriRow = tokenizerAndVectorizerByComma(output, LIST_DIAGNOSTICOS_PRI_COL, JOKER_COL, OUTPUT_COL);
-        Dataset<Row> listDiagnosticosSecRow = tokenizerAndVectorizerByComma(output, LIST_DIAGNOSTICOS_SEC_COL, JOKER_COL, OUTPUT_COL);
-        Dataset<Row> listProcedimientosPriRow = tokenizerAndVectorizerByComma(output, LIST_PROCEDIMIENTOS_PRI_COL, JOKER_COL, OUTPUT_COL);
-        Dataset<Row> listProcedimientosSecRow = tokenizerAndVectorizerByComma(output, LIST_PROCEDIMIENTOS_SEC_COL, JOKER_COL, OUTPUT_COL);
-        Dataset<Row> listCausasExternasRow = tokenizerAndVectorizerByComma(output, LIST_CAUSAS_EXTERNAS_COL, JOKER_COL, OUTPUT_COL);
+        final String[] inputColsAssembler = new String[]{
+                IND_DEM_COL,
+                IND_CONS_COL,
+                IND_SORD_COL,
+                IND_ALT_VIS_COL,
+                LIST_ARRAY_OUTPUT[0],
+                LIST_ARRAY_OUTPUT[1],
+                LIST_ARRAY_OUTPUT[2],
+                LIST_ARRAY_OUTPUT[3],
+                LIST_ARRAY_OUTPUT[4],
+                OUTPUT_COLUMNS[0],
+                OUTPUT_COLUMNS[1],
+                OUTPUT_COLUMNS[2],
+                OUTPUT_COLUMNS[3],
+                OUTPUT_COLUMNS[4],
+                OUTPUT_COLUMNS[5],
+                OUTPUT_COLUMNS[6]
+        };
 
-//      Dataset<Row> finalOutput = output
-//                .union(hemoEncoded.select(OUTPUT_COL));
-//                .withColumn(CREA_COL, creaEncoded.select(OUTPUT_COL))
-//                .withColumn(ALBU_COL, albuEncoded.select(OUTPUT_COL))
-//                .withColumn(BAR_COL, barEncoded.select(OUTPUT_COL))
-//                .withColumn(PFF_COL, pfeiEncoded.select(OUTPUT_COL))
-//                .withColumn(DIF_BAR_COL, difBarEncoded.select(OUTPUT_COL))
-//                .withColumn(DIF_PFF_COL, difPfeiEncoded.select(OUTPUT_COL))
-//                .withColumn(IND_DEM_COL, dementiaEndoded.select(OUTPUT_COL))
-//                .withColumn(IND_CONS_COL, constipationEncoded.select(OUTPUT_COL))
-//                .withColumn(IND_SORD_COL, deafnessEncoded.select(OUTPUT_COL))
-//                .withColumn(IND_ALT_VIS_COL, visualDisturbance.select(OUTPUT_COL))
-//                .withColumn(LIST_DIAGNOSTICOS_PRI_COL, listDiagnosticosPriRow.select(OUTPUT_COL))
-//                .withColumn(LIST_DIAGNOSTICOS_SEC_COL, listDiagnosticosSecRow.select(OUTPUT_COL))
-//                .withColumn(LIST_PROCEDIMIENTOS_PRI_COL, listProcedimientosPriRow.select(OUTPUT_COL))
-//                .withColumn(LIST_PROCEDIMIENTOS_SEC_COL, listProcedimientosSecRow.select(OUTPUT_COL))
-//                .withColumn(LIST_CAUSAS_EXTERNAS_COL, listCausasExternasRow.select(OUTPUT_COL));
-
-//        finalOutput.show();
-
-        /*
+        VectorAssembler assembler = new VectorAssembler()
+                .setInputCols(inputColsAssembler)
+                .setOutputCol(FEATURES_COL);
+        Dataset<Row> assembled = assembler.transform(df);
 
         // Dividimos el dataset en train i test
-	    Dataset<Row>[] splits= estimations.randomSplit(new double[] {0.3,0.7});
-	    Dataset<Row> train = splits[1];
-	    Dataset<Row> test = splits[0];
+        Dataset<Row>[] splits = assembled.randomSplit(new double[]{0.3, 0.7});
+        Dataset<Row> train = splits[1];
+        Dataset<Row> test = splits[0];
+        train.persist();
+        train.show();
 
-	    // Aseguramos permanencia del train en la memoria de los workers si es posible
-	    train.persist();
+        // Ajustamos el modelo (SVM con CV)
+        CrossValidatorModel cvModel = fitModel(train);
 
-	    // Ajustamos el modelo (SVM con CV)
-	    CrossValidatorModel cvModel = fitModel(train);
+        // Predicciones sobre test set
+        Dataset<Row> predictions = cvModel.transform(test).select(PREDICTION_COL, VAR_DIAS_ESTANCIA_DISC);
 
-	    // Predicciones sobre test set
-	    Dataset<Row> predictions = cvModel.transform(test).select("prediction","label");
+        // Definimos un evaluador
+        MulticlassClassificationEvaluator evaluator = new MulticlassClassificationEvaluator()
+                .setMetricName("accuracy")
+                .setLabelCol(VAR_DIAS_ESTANCIA_DISC)
+                .setPredictionCol(PREDICTION_COL);
 
-	    // Definimos un evaluador
-	    MulticlassClassificationEvaluator evaluator = new MulticlassClassificationEvaluator()
-			        .setMetricName("accuracy")
-			        .setLabelCol("label")
-			        .setPredictionCol("prediction");
+        double accuracy = evaluator.evaluate(predictions);
+        System.out.println("Train samples: " + train.count());
+        System.out.println("Test samples: " + test.count());
+        System.out.println("Test Error = " + (1 - accuracy));
 
-	    double accuracy = evaluator.evaluate(predictions);
-	    System.out.println("Train samples: "+train.count());
-	    System.out.println("Test samples: "+test.count());
-	    System.out.println("Test Error = " + (1 - accuracy));
-	    */
         ss.stop();
     }
 }
